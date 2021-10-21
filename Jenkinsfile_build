@@ -1,0 +1,187 @@
+/*****************************************************************************
+ * Copyright (C) 2021, RTE (http://www.rte-france.com)
+ * SPDX-License-Identifier: Apache-2.0
+ * Jenkins pipeline to build SEAPATH images
+ *
+ * Requirements:
+ * - Install Jenkins plugins: Pipline, Pipeline Utility Steps, Throttle
+ *   Concurrent Builds, extended choice and Workspace Cleanup
+ * - Commands repo, git and cqfd
+ * - Add your public SSH key and secure boot keys in the keys directory
+ *****************************************************************************/
+
+build_result_map = [
+    flash_bios : [
+        "votp/seapath-flash-bios-votp.wic.gz",
+        "votp/seapath-flash-bios-votp.wic.bmap",
+    ],
+    flash_efi : [
+        "votp/seapath-flash-efi-votp.wic.gz",
+        "votp/seapath-flash-efi-votp.wic.bmap",
+    ],
+    flash_pxe : [
+        "votp/bzImage",
+        "votp/seapath-flash-pxe-votp.cpio.gz"
+    ],
+    guest_efi : [
+        "votp-vm/seapath-guest-efi-image-votp-vm.wic.qcow2"
+    ],
+    guest_efi_test : [
+        "votp-vm/seapath-guest-efi-test-image-votp-vm.wic.qcow2"
+    ],
+    guest_efi_dbg : [
+        "votp-vm/seapath-guest-efi-dbg-image-votp-vm.wic.qcow2"
+    ],
+    host_bios : [
+        "votp/seapath-host-bios-image-votp.wic.gz",
+        "votp/seapath-host-bios-image-votp.wic.bmap"
+    ],
+    host_bios_dbg : [
+        "votp/seapath-host-bios-dbg-image-votp.wic.gz",
+        "votp/seapath-host-bios-dbg-image-votp.wic.bmap"
+    ],
+    host_bios_no_iommu : [
+        "votp-no-iommu/seapath-host-bios-no-iommu-image-votp-no-iommu.wic.bmap",
+        "votp-no-iommu/seapath-host-bios-no-iommu-image-votp-no-iommu.wic.gz"
+    ],
+    host_bios_test : [
+        "votp/seapath-host-bios-test-image-votp.wic.gz",
+        "votp/seapath-host-bios-test-image-votp.wic.bmap"
+    ],
+    host_bios_test_no_iommu : [
+        "votp-no-iommu/seapath-host-bios-test-no-iommu-image-votp-no-iommu.wic.bmap",
+        "votp-no-iommu/seapath-host-bios-test-no-iommu-image-votp-no-iommu.wic.gz"
+    ],
+    host_efi : [
+        "votp/seapath-host-efi-image-votp.wic.gz",
+        "votp/seapath-host-efi-image-votp.wic.bmap"
+    ],
+    host_efi_dbg : [
+        "votp/seapath-host-efi-dbg-image-votp.wic.gz",
+        "votp/seapath-host-efi-dbg-image-votp.wic.bmap"
+    ],
+    host_efi_test : [
+        "votp/seapath-host-efi-test-image-votp.wic.gz",
+        "votp/seapath-host-efi-test-image-votp.wic.bmap"
+    ],
+    host_efi_swu : [
+        "votp/seapath-host-efi-swu-image-votp.swu"
+    ],
+    monitor_bios : [
+        "votp-monitor/seapath-monitor-bios-image-votp-monitor.wic.gz",
+        "votp-monitor/seapath-monitor-bios-image-votp-monitor.wic.bmap",
+    ],
+    monitor_efi : [
+        "votp-monitor/seapath-monitor-efi-image-votp-monitor.wic.gz",
+        "votp-monitor/seapath-monitor-efi-image-votp-monitor.wic.bmap",
+    ],
+    monitor_efi_swu : [
+        "votp-monitor/seapath-monitor-efi-swu-image-votp-monitor.swu"
+    ]
+]
+
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'OUPUT_IMAGES_DIR',
+               defaultValue: '/var/jenkins_home/images/',
+               description: """Directory where the built images will be exported to.""")
+        string(name: 'KEYS_DIR',
+               defaultValue: '/var/jenkins_home/keys',
+               description: """Path to the keys directory.""")
+        booleanParam(
+            name: 'CLEAN_WORKSPACE',
+            defaultValue: true,
+            description: 'Clean the workspace and restart building from strach')
+        extendedChoice(
+            description: 'Select the images to build',
+            multiSelectDelimiter: ',',
+            name: 'IMAGES',
+            quoteValue: false,
+            saveJSONParameterToFile: false,
+            type: 'PT_CHECKBOX',
+            value: 'flash_bios,flash_efi,flash_pxe,guest_efi,guest_efi_test,guest_efi_dbg,host_bios,host_bios_dbg,host_bios_no_iommu,host_bios_test,host_bios_test_no_iommu,host_efi,host_efi_dbg,host_efi_test,host_efi_swu,monitor_bios,monitor_efi,monitor_efi_swu',
+            visibleItemCount: 100)
+    }
+
+    // Prevent concurrent execution of jobs tagged with "seapath-build" category
+    options {
+        throttleJobProperty(
+            categories: ['seapath-build'],
+            throttleEnabled: true,
+            throttleOption: 'category',
+            maxConcurrentPerNode: 1,
+            maxConcurrentTotal: 1)
+        buildDiscarder (
+            logRotator(artifactNumToKeepStr: '20', numToKeepStr: '20'))
+    }
+
+    environment {
+        YOCTO_CACHE_DIR = "/var/jenkins_home/yocto"
+        CQFD_EXTRA_RUN_ARGS = "-v ${YOCTO_CACHE_DIR}/dl:/mnt/dl -e DL_DIR=/mnt/dl \
+        -v ${YOCTO_CACHE_DIR}/sstate:/mnt/sstate -e SSTATE_DIR=/mnt/sstate"
+        BUILD_DIR = "build/tmp/deploy/images"
+        SEAPATH_URI = "https://github.com/seapath"
+    }
+
+    stages {
+
+        stage("Prepare workspace") {
+            steps {
+                script {
+                    if (!params.IMAGES) {
+                        error "Error no images selected, nothing to do!"
+                    }
+                    if (params.CLEAN_WORKSPACE) {
+                        stage("Clean Workspace") {
+                            cleanWs()
+                        }
+                    }
+                    if (params.CLEAN_WORKSPACE) {
+                        stage("Fetch Sources") {
+                            sh """
+                                repo init -u "$SEAPATH_URI/repo-manifest.git"
+                                repo sync
+                                cqfd init
+                            """
+                        }
+                    }
+                    stage("Import keys") {
+                        sh """
+                            if [ -e keys ] ; then
+                                rm -rf keys
+                            fi
+                            cp -frv "$params.KEYS_DIR"/ keys
+                        """
+                    }
+                    stage("Create Images Dir") {
+                        sh "mkdir -p -v $params.OUPUT_IMAGES_DIR"
+                    }
+                }
+            }
+        }
+
+        stage ("Build Images") {
+            steps {
+                script {
+                    images = params.IMAGES.split(",")
+                    for (image in images) {
+                        stage("Build " + image) {
+                            sh """
+                                cqfd -b $image
+                            """
+                        }
+                        stage("Save " + image + " result") {
+                            for (file in build_result_map[image]) {
+                                sh """
+                                    cp -fv "$BUILD_DIR"/"$file" "$params.OUPUT_IMAGES_DIR"/
+                                """
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
