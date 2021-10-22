@@ -90,6 +90,14 @@ pipeline {
         string(name: 'KEYS_DIR',
                defaultValue: '/var/jenkins_home/keys',
                description: """Path to the keys directory.""")
+        string(name: 'HTTP_PROXY',
+               defaultValue: "",
+               description: "Overwrite HTTP proxy configuration"
+        )
+        string(name: 'NO_PROXY',
+               defaultValue: "",
+               description: "Overwrite no proxy configuration"
+        )
         booleanParam(
             name: 'CLEAN_WORKSPACE',
             defaultValue: true,
@@ -119,8 +127,6 @@ pipeline {
 
     environment {
         YOCTO_CACHE_DIR = "/var/jenkins_home/yocto"
-        CQFD_EXTRA_RUN_ARGS = "-v ${YOCTO_CACHE_DIR}/dl:/mnt/dl -e DL_DIR=/mnt/dl \
-        -v ${YOCTO_CACHE_DIR}/sstate:/mnt/sstate -e SSTATE_DIR=/mnt/sstate"
         BUILD_DIR = "build/tmp/deploy/images"
         SEAPATH_URI = "https://github.com/seapath"
     }
@@ -136,6 +142,78 @@ pipeline {
                     if (params.CLEAN_WORKSPACE) {
                         stage("Clean Workspace") {
                             cleanWs()
+                        }
+                    }
+                    stage("Prepare environnement")
+                    {
+                        env.CQFD_EXTRA_RUN_ARGS = \
+                            "-v $env.YOCTO_CACHE_DIR/dl:/mnt/dl" + \
+                            " -e DL_DIR=/mnt/dl" + \
+                            " -v $env.YOCTO_CACHE_DIR/sstate:/mnt/sstate" + \
+                            " -e SSTATE_DIR=/mnt/sstate"
+                        env.CQFD_EXTRA_BUILD_ARGS = ""
+                        sh """
+                            mkdir -p "$YOCTO_CACHE_DIR/dl" "$YOCTO_CACHE_DIR/sstate"
+                        """
+                        if (params.HTTP_PROXY) {
+                            http_proxy = params.HTTP_PROXY
+                        }
+                        else if (env.HTTP_PROXY) {
+                            http_proxy = env.HTTP_PROXY
+                        }
+                        else if (env.HTTPS_PROXY) {
+                            http_proxy = env.HTTPS_PROXY
+                        }
+                        else if (env.http_proxy) {
+                            http_proxy = env.http_proxy
+                        }
+                        else if (env.https_proxy) {
+                            http_proxy = env.https_proxy
+                        }
+                        else {
+                            http_proxy = ""
+                        }
+                        if (params.NO_PROXY) {
+                            no_proxy = params.NO_PROXY
+                        }
+                        else if (env.NO_PROXY) {
+                            no_proxy = env.NO_PROXY
+                        }
+                        else if (env.no_proxy) {
+                            no_proxy = env.no_proxy
+                        }
+                        else {
+                            no_proxy = ""
+                        }
+                        if (http_proxy != "") {
+                            echo "Use $http_proxy as proxy"
+                            env.HTTP_PROXY = http_proxy
+                            env.HTTPS_PROXY = http_proxy
+                            env.http_proxy = http_proxy
+                            env.https_proxy = http_proxy
+                            env.CQFD_EXTRA_RUN_ARGS += \
+                                " -e http_proxy=$http_proxy" + \
+                                " -e https_proxy=$http_proxy" + \
+                                " -e HTTPS_PROXY=$http_proxy" + \
+                                " -e HTTP_PROXY=$http_proxy" + \
+                                " -e GIT_PROXY_COMMAND=oe-git-proxy"
+                            env.CQFD_EXTRA_BUILD_ARGS += \
+                                " --build-arg http_proxy=$http_proxy" + \
+                                " --build-arg https_proxy=$http_proxy" + \
+                                " --build-arg HTTPS_PROXY=$http_proxy" + \
+                                " --build-arg HTTP_PROXY=$http_proxy" + \
+                                " --build-arg GIT_PROXY_COMMAND=oe-git-proxy"
+                        }
+                        if (no_proxy != "") {
+                            echo "Exclude $no_proxy from proxy"
+                            env.no_proxy = no_proxy
+                            env.NO_PROXY = no_proxy
+                            env.CQFD_EXTRA_RUN_ARGS += \
+                                " -e no_proxy=$no_proxy" + \
+                                " -e NO_PROXY=$no_proxy"
+                            env.CQFD_EXTRA_BUILD_ARGS += \
+                                " --build-arg no_proxy=$no_proxy" + \
+                                " --build-arg NO_PROXY=$no_proxy"
                         }
                     }
                     if (params.CLEAN_WORKSPACE) {
