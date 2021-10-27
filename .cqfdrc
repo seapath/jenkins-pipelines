@@ -1,0 +1,6 @@
+[project]
+org='rte'
+name='jenkinsfiles'
+
+[build]
+command='check_Jenkinsfiles.sh'
