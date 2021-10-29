@@ -1,0 +1,563 @@
+/*****************************************************************************
+ * Jenkins pipeline that runs the CI for already built images.
+ *
+ * Requirements:
+ * - Install plugins: SSH Agent, Pipeline, Junit, Pipeline Utility
+ *   Steps, Throttle Concurrent Builds. and Workspace Cleanup
+ * - Set SSH key with name 'gitlab-credentials' and 'cluster'
+ * - Configure Throttle Concurrent Builds according to README.md
+ * - Set properties file (by default '/var/jenkins_home/jenkins.properties')
+ *****************************************************************************/
+
+def p // Global variable to handle properties
+
+def imgs_common = [
+    "bzImage",
+    "seapath-flash-pxe-votp.cpio.gz",
+    "seapath-monitor-bios-image-votp-monitor.wic.bmap",
+    "seapath-monitor-bios-image-votp-monitor.wic.gz"]
+
+def imgs_regular = [
+    "seapath-host-bios-image-votp.wic.bmap",
+    "seapath-host-bios-image-votp.wic.gz"]
+
+def imgs_tests = [
+    "seapath-host-bios-test-image-votp.wic.bmap",
+    "seapath-host-bios-test-image-votp.wic.gz"]
+
+def imgs_noiommu = [
+    "seapath-host-bios-no-iommu-image-votp-no-iommu.wic.bmap",
+    "seapath-host-bios-no-iommu-image-votp-no-iommu.wic.gz"]
+
+def imgs_tests_noiommu = [
+    "seapath-host-bios-test-no-iommu-image-votp-no-iommu.wic.bmap",
+    "seapath-host-bios-test-no-iommu-image-votp-no-iommu.wic.gz"]
+
+def img_guest = ["seapath-guest-efi-image-votp-vm.wic.qcow2"]
+def img_guest_test = ["seapath-guest-efi-test-image-votp-vm.wic.qcow2"]
+
+pipeline {
+    agent any
+
+    // Prevent concurrent execution of jobs tagged with "cluster" category
+    options {
+        throttleJobProperty(
+            categories: ['cluster'],
+            throttleEnabled: true,
+            throttleOption: 'category',
+            maxConcurrentPerNode: 1,
+            maxConcurrentTotal: 1)
+        buildDiscarder (
+            logRotator(artifactNumToKeepStr: '20', numToKeepStr: '20'))
+    }
+
+    // TODO: Add gitlab server fingerprints to known_hosts instead
+    environment {
+        GIT_SSH_COMMAND = "ssh -o StrictHostKeyChecking=no"
+        YOCTO_CACHE_DIR = "/var/jenkins_home/yocto"
+        CQFD_EXTRA_RUN_ARGS = "-v ${YOCTO_CACHE_DIR}/dl:/mnt/dl -e DL_DIR=/mnt/dl \
+        -v ${YOCTO_CACHE_DIR}/sstate:/mnt/sstate -e SSTATE_DIR=/mnt/sstate"
+        BUILD_DIR = "build/tmp/deploy/images/votp"
+        CONFIG_FILE = "/var/jenkins_home/jenkins.properties"
+        TMP_FILE = ".all_latencies"
+    }
+
+    parameters {
+        string(name: 'IMAGES_DIR',
+               defaultValue: '/var/jenkins_home/images/<user>',
+               description: """Directory where built images are located. \
+Please create and use a subdirectory inside /var/jenkins_home/images with the \
+following files:
+- bzImage
+- seapath-flash-pxe-votp.cpio.gz
+- seapath-host-bios-image-votp.wic.bmap
+- seapath-host-bios-image-votp.wic.gz
+- seapath-host-bios-test-image-votp.wic.bmap
+- seapath-host-bios-test-image-votp.wic.gz
+- seapath-monitor-bios-image-votp-monitor.wic.bmap
+- seapath-monitor-bios-image-votp-monitor.wic.gz
+- seapath-guest-efi-image-votp-vm.wic.qcow2
+- seapath-guest-efi-test-image-votp-vm.wic.qcow2
+- seapath-host-bios-no-iommu-image-votp-no-iommu.wic.bmap
+- seapath-host-bios-no-iommu-image-votp-no-iommu.wic.gz
+
+Note:
+- images need to be built with the 'cluster' ansible SSH public key \
+(https://r1.sfl.team/attachments/3416).
+- tests images are required only in ci_rt_test and no IOMMU only in custom
+               """)
+        string(
+            name: 'MAX_LATENCY',
+            defaultValue: '200',
+            description: 'Maximal latency to reach (us)'
+            )
+
+        choice(
+            name: 'TYPE',
+            choices: ['ci', 'ci_rt_test', 'custom'],
+            description: '''Select the pipeline type:
+ - ci: pipeline with CI test and VMs
+ - ci_rt_test: like ci with real time tests (Warning: long and invasive tests)
+ - custom: Generate a custom environment using a custom inventories'''
+        )
+        string (
+            name: 'custom_inventories',
+            description: '''Custom inventories list (comma separated).
+Work only if TYPE is custom.
+'''
+        )
+        string (
+            name: 'VMs_directory',
+            description: '''Change the directory where the VMs are stored
+Work only if TYPE is custom.
+'''
+        )
+        booleanParam(
+            name: 'NO_IOMMU',
+            defaultValue: false,
+            description: 'If custom is set, use no IOMMU images'
+            )
+    }
+
+    stages {
+
+        stage("1. Prepare Workspace") {
+            steps {
+                cleanWs()
+                script {
+
+                    stage("1.1. Read Config File") {
+                        if (!fileExists("${CONFIG_FILE}")) {
+                            error "Could not find configuration properties file: ${CONFIG_FILE}"
+                        }
+                        p = readProperties file: "${CONFIG_FILE}"
+                        if (params.TYPE == 'custom') {
+                            if (!params.custom_inventories)
+                            {
+                                error "Error custom_inventories must be set if TYPE is custom"
+                            }
+                            env.ANSIBLE_INVENTORY = env.custom_inventories
+                        } else {
+                            env.ANSIBLE_INVENTORY = env.WORKSPACE + \
+                                "/inventory/" + \
+                                p.CI + \
+                                "_ci.yaml"
+                            if (params.NO_IOMMU) {
+                                env.ANSIBLE_INVENTORY += "," + \
+                                    env.WORKSPACE + \
+                                    "/inventory/ovs/no_dpdk.yaml"
+                            }
+                        }
+                    }
+
+                    stage("1.2. Stop containers") {
+                        sh """
+                            if docker ps |grep -q ci_pxe ; then
+                                docker stop ci_pxe
+                            fi
+                            if docker ps |grep -q ci_dhcp_vm ; then
+                                docker stop ci_dhcp_vm
+                            fi
+                        """
+                    }
+
+                    stage("1.3. Check Images Dir") {
+
+                        def imgCheck = true
+                        def imgs = imgs_common
+                        if (params.TYPE == "ci_rt_test") {
+                            if (params.NO_IOMMU) {
+                                imgs += imgs_tests_noiommu
+                            } else {
+                                imgs += imgs_tests
+                            }
+                            imgs += img_guest_test
+                        } else {
+                             if (params.NO_IOMMU) {
+                                imgs += imgs_noiommu
+                             } else {
+                                imgs += imgs_regular
+                             }
+                             imgs += img_guest
+                        }
+                        imgs.each { item ->
+                            if (!fileExists("${IMAGES_DIR}/${item}")) {
+                                echo "Could not find ${item}"
+                                imgCheck = false
+                            }
+                        }
+                         if (!imgCheck) {
+                            error "Could not find all images, please check ${IMAGES_DIR}"
+                        }
+                        echo "copying PXE images to root directory"
+                        sh """
+                            cp ${IMAGES_DIR}/bzImage /var/jenkins_home/images/
+                            cp ${IMAGES_DIR}/seapath-flash-pxe-votp.cpio.gz /var/jenkins_home/images/
+                        """
+                    }
+
+                    stage("1.4. Ansible Prepare") {
+                        sshagent(credentials : ['gitlab-credentials']) {
+                            sh """
+                                git clone -b sfl/master \
+                                "[git@$p.GITLAB_URL]:$p.GITLAB_USER/ansible.git"
+                                cd ansible
+                                ./prepare.sh
+                                ansible localhost -m ping
+                            """
+                        }
+                    }
+
+                    stage("1.5. Get Ansible inventory") {
+                        sshagent(credentials : ['gitlab-credentials']) {
+                            // Credentials to access REPO_ANSIBLE_INVENTORY
+                            sh """
+                                # Inventory from remote repository if specified
+                                if [ "$p.REPO_ANSIBLE_INVENTORIES" != "null" ] ; then
+                                    # Inventory from remote repository if specified
+                                    git clone -b sfl/master "$p.REPO_ANSIBLE_INVENTORIES" inventory
+                                fi
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        stage("2. Boot from PXE") {
+            steps {
+                script {
+                    sshagent(credentials : ['cluster']) {
+                        sh """
+                            cd ansible
+                            ansible-playbook playbooks/ci_prepare_machine.yaml
+                        """
+                    }
+                }
+            }
+        }
+
+        stage ("3. Flash Images") {
+            steps {
+                script {
+                    if (params.TYPE == "ci_rt_test") {
+                        sshagent(credentials : ['cluster']) {
+                            if (params.NO_IOMMU) {
+                                sh """
+                                    cd ansible
+                                    ansible-playbook \
+                                    --extra-vars image_path="${IMAGES_DIR}/seapath-host-bios-test-no-iommu-image-votp-no-iommu.wic.gz" \
+                                    --limit "pxe_hypervisor*" \
+                                    playbooks/ci_flash_disk.yaml
+                                """
+                            } else {
+                                sh """
+                                    cd ansible
+                                    ansible-playbook \
+                                    --extra-vars image_path="${IMAGES_DIR}/seapath-host-bios-test-image-votp.wic.gz" \
+                                    --limit "pxe_hypervisor*" \
+                                    playbooks/ci_flash_disk.yaml
+                                """
+                            }
+                            sh """
+                                cd ansible
+                                ansible-playbook \
+                                --extra-vars image_path="${IMAGES_DIR}/seapath-monitor-bios-image-votp-monitor.wic.gz" \
+                                --limit "pxe_observer" \
+                                playbooks/ci_flash_disk.yaml
+                            """
+                        }
+                    }else{
+                        sshagent(credentials : ['cluster']) {
+                            if (params.NO_IOMMU) {
+                                sh """
+                                    cd ansible
+                                    ansible-playbook \
+                                    --extra-vars image_path="${IMAGES_DIR}/seapath-host-bios-no-iommu-image-votp-no-iommu.wic.gz" \
+                                    --limit "pxe_hypervisor*" \
+                                    playbooks/ci_flash_disk.yaml
+                                    ansible-playbook \
+                                    --extra-vars image_path="${IMAGES_DIR}/seapath-monitor-bios-image-votp-monitor.wic.gz" \
+                                    --limit "pxe_observer" \
+                                    playbooks/ci_flash_disk.yaml
+                                """
+                            } else {
+                                sh """
+                                    cd ansible
+                                    ansible-playbook \
+                                    --extra-vars image_directory="${IMAGES_DIR}" \
+                                    playbooks/ci_flash_disk.yaml
+                                """
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        stage("4. Configure Hosts") {
+            steps {
+                script {
+                    sshagent(credentials : ['cluster']) {
+                        sh """
+                            cd ansible
+                            ansible-playbook playbooks/ci_configure_hosts.yaml
+                        """
+                    }
+                }
+            }
+        }
+
+        stage("5. Test Hosts") {
+            steps {
+                script {
+                    stage("5.1. Test Common") {
+                        sshagent(credentials : ['cluster']) {
+                            sh """
+                                cd ansible
+                                ansible-playbook playbooks/ci_common_tests.yaml
+                            """
+                        }
+                        junit "ansible/playbooks/common/*/cukinia_common.xml"
+                    }
+                    stage("5.2. Test Hypervisors") {
+                        sshagent(credentials : ['cluster']) {
+                            sh """
+                                cd ansible
+                                ansible-playbook playbooks/ci_hypervisor_tests.yaml
+                            """
+                        }
+                        junit "ansible/playbooks/hypervisor/*/cukinia_hypervisor.xml"
+                    }
+                    if (params.TYPE != "custom") {
+                        stage("5.3. Test openvswitch") {
+                            sshagent(credentials : ['cluster']) {
+                                sh """
+                                    cd ansible
+                                    ansible-playbook playbooks/ci_ovs_tests.yaml
+                                """
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        stage("6. Configure Cluster") {
+            steps {
+                script {
+                    sshagent(credentials : ['cluster']) {
+                        sh """
+                            cd ansible
+                            ansible-playbook playbooks/ci_configure_cluster.yaml
+                        """
+                    }
+                }
+            }
+        }
+
+        stage("7. Test Cluster") {
+            steps {
+                script {
+                    sshagent(credentials : ['cluster']) {
+                        sh """
+                            cd ansible
+                            ansible-playbook playbooks/ci_cluster_tests.yaml
+                        """
+                        junit "ansible/playbooks/cluster/cukinia_cluster.xml"
+                    }
+                }
+            }
+        }
+
+        stage("8. Prepare VM environment") {
+            steps {
+                script {
+                    if (params.TYPE != "custom") {
+                        sh """
+                            cd ansible
+                            ansible-playbook playbooks/ci_setup_vms_environement.yaml
+                        """
+                    }
+                }
+            }
+        }
+
+        stage("9. Deploy VM") {
+            steps {
+                script {
+                    if (params.NO_IOMMU) {
+                        env.guest_template = env.WORKSPACE + \
+                            "/ansible/templates/vm/votp_vm_rt_isolated.xml.j2"
+                    } else {
+                        env.guest_template = env.WORKSPACE + \
+                            "/ansible/templates/vm/votp_vm_dpdk_isolated.xml.j2"
+                    }
+                    if (params.TYPE == "ci_rt_test") {
+                        sshagent(credentials : ['cluster']) {
+                            sh """
+                                cd ansible
+                                ansible-playbook \
+                                --extra-vars image_directory="${IMAGES_DIR}" \
+                                --extra-vars guest_image=seapath-guest-efi-test-image-votp-vm.wic.qcow2 \
+                                --extra-vars vm_config="${guest_template}" \
+                                playbooks/ci_deploy_vms.yaml
+
+                                # Verify correct deployment
+                                ansible-playbook playbooks/ci_test_vm_status.yaml
+                            """
+                        }
+                    } else if (params.TYPE == "custom") {
+                        sshagent(credentials : ['cluster']) {
+                            if (params.VMs_directory)
+                            {
+                                sh """
+                                    cd ansible
+                                    ansible-playbook \
+                                    playbooks/cluster_setup_deploy_vms.yaml \
+                                    --extra-vars vms_disks_directory=${VMs_directory}/disks \
+                                    --extra-vars vms_disks_directory=${vms_config_directory}/configs
+                                """
+                            }
+                            else
+                            {
+                                sh """
+                                    cd ansible
+                                    ansible-playbook \
+                                    playbooks/cluster_setup_deploy_vms.yaml
+                                """
+                            }
+                       }
+                    } else {
+                        sshagent(credentials : ['cluster']) {
+                            sh """
+                                cd ansible
+                                ansible-playbook \
+                                --extra-vars image_directory="${IMAGES_DIR}" \
+                                --extra-vars vm_config="${guest_template}" \
+                                playbooks/ci_deploy_vms.yaml
+
+                                # Verify correct deployment
+                                ansible-playbook playbooks/ci_test_vm_status.yaml
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        stage("10. Configure VM") {
+            steps {
+                script {
+                    if (params.TYPE != "custom") {
+                         sshagent(credentials : ['cluster']) {
+                            sh """
+                                cd ansible
+                                ansible-playbook playbooks/ci_configure_vm.yaml
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        stage("11. Test VM") {
+            steps {
+                script {
+                    if (params.TYPE != "custom") {
+                        sshagent(credentials : ['cluster']) {
+                            sh """
+                                cd ansible
+                                ansible-playbook playbooks/ci_vm_tests.yaml
+                            """
+                        }
+                        junit "ansible/playbooks/vm/*/cukinia_vm.xml"
+
+                        if (params.TYPE == "ci_rt_test") {
+                            sshagent(credentials : ['cluster']) {
+                                sh """
+                                    cd ansible
+                                    ansible-playbook playbooks/ci_realtime_tests.yaml
+                                """
+                            }
+                            junit "ansible/playbooks/realtime/*/cukinia_realtime.xml"
+
+                            max_found = sh(
+                                script: """
+                                    [ -f \$TMP_FILE ] && rm \$TMP_FILE && touch \$TMP_FILE
+                                    base_dir="ansible/playbooks/realtime"
+                                    for file in `find \$base_dir -name output`; do
+                                        max=`grep "Max Latencies" \$file \
+                                            | tr " " "\n" | sort -n | tail -1 | sed s/^0*//)`
+                                        echo \$max >> \$TMP_FILE
+                                    done
+                                    echo `sort -n -r \$TMP_FILE | head -n 1`
+                                    """, returnStdout: true
+                                    ).trim()
+
+                            currentBuild.description = "Max latency: " + max_found.toString()
+                            archiveArtifacts artifacts: "${TMP_FILE}"
+                            archiveArtifacts artifacts: "ansible/playbooks/realtime/*/output"
+                            if (max_found.toInteger() > MAX_LATENCY.toInteger()) {
+                                error "Maximal latency reached"
+                            }
+                        }
+                    }
+                    sshagent(credentials : ['VMs']) {
+                        sh """
+                            cd ansible
+                            ansible-playbook playbooks/ci_custom_vms_tests.yaml
+                        """
+                        if(fileExists("ansible/playbooks/vm_custom")) {
+                            junit "ansible/playbooks/vm_custom/*/cukinia_vms_custom_tests.xml"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage("12. Stop VMs DHCP") {
+            steps {
+                script {
+                    if (params.TYPE != "custom") {
+                        sh """
+                            cd ansible
+                            ansible-playbook playbooks/ci_stop_vms_dhcp.yaml
+                        """
+                    }
+                }
+            }
+        }
+
+        stage("13. Test Common 2nd call") {
+            steps {
+                script {
+                    sshagent(credentials : ['cluster']) {
+                        sh """
+                            cd ansible
+                            ansible-playbook playbooks/ci_common_tests.yaml
+                        """
+                    }
+                }
+            }
+        }
+    }
+    post {
+        success {
+            echo "CI succeed"
+        }
+        failure {
+            echo "Did not succeed!"
+            script {
+                sh """
+                    if docker ps |grep -q ci_pxe ; then
+                        docker stop ci_pxe
+                    fi
+                    if docker ps |grep -q ci_dhcp_vm ; then
+                        docker stop ci_dhcp_vm
+                    fi
+                """
+            }
+        }
+    }
+}
