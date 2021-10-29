@@ -4,7 +4,7 @@
  * Jenkins pipeline to build SEAPATH images
  *
  * Requirements:
- * - Install Jenkins plugins: Pipline, Pipeline Utility Steps, Throttle
+ * - Install Jenkins plugins: Pipeline, Pipeline Utility Steps, Throttle
  *   Concurrent Builds, extended choice and Workspace Cleanup
  * - Commands repo, git and cqfd
  * - Add your public SSH key and secure boot keys in the keys directory
@@ -111,6 +111,15 @@ pipeline {
             type: 'PT_CHECKBOX',
             value: 'flash_bios,flash_efi,flash_pxe,guest_efi,guest_efi_test,guest_efi_dbg,host_bios,host_bios_dbg,host_bios_no_iommu,host_bios_test,host_bios_test_no_iommu,host_efi,host_efi_dbg,host_efi_test,host_efi_swu,monitor_bios,monitor_efi,monitor_efi_swu',
             visibleItemCount: 100)
+        extendedChoice(
+            description: 'Select the container to build',
+            multiSelectDelimiter: ',',
+            name: 'CONTAINERS',
+            quoteValue: false,
+            saveJSONParameterToFile: false,
+            type: 'PT_CHECKBOX',
+            value: 'pxe,',
+            visibleItemCount: 100)
     }
 
     // Prevent concurrent execution of jobs tagged with "seapath-build" category
@@ -133,130 +142,161 @@ pipeline {
 
     stages {
 
-        stage("Prepare workspace") {
+        stage("Check parameters")  {
             steps {
                 script {
-                    if (!params.IMAGES) {
-                        error "Error no images selected, nothing to do!"
-                    }
-                    if (params.CLEAN_WORKSPACE) {
-                        stage("Clean Workspace") {
-                            cleanWs()
-                        }
-                    }
-                    stage("Prepare environnement")
-                    {
-                        env.CQFD_EXTRA_RUN_ARGS = \
-                            "-v $env.YOCTO_CACHE_DIR/dl:/mnt/dl" + \
-                            " -e DL_DIR=/mnt/dl" + \
-                            " -v $env.YOCTO_CACHE_DIR/sstate:/mnt/sstate" + \
-                            " -e SSTATE_DIR=/mnt/sstate"
-                        env.CQFD_EXTRA_BUILD_ARGS = ""
-                        sh """
-                            mkdir -p "$YOCTO_CACHE_DIR/dl" "$YOCTO_CACHE_DIR/sstate"
-                        """
-                        if (params.HTTP_PROXY) {
-                            http_proxy = params.HTTP_PROXY
-                        }
-                        else if (env.HTTP_PROXY) {
-                            http_proxy = env.HTTP_PROXY
-                        }
-                        else if (env.HTTPS_PROXY) {
-                            http_proxy = env.HTTPS_PROXY
-                        }
-                        else if (env.http_proxy) {
-                            http_proxy = env.http_proxy
-                        }
-                        else if (env.https_proxy) {
-                            http_proxy = env.https_proxy
-                        }
-                        else {
-                            http_proxy = ""
-                        }
-                        if (params.NO_PROXY) {
-                            no_proxy = params.NO_PROXY
-                        }
-                        else if (env.NO_PROXY) {
-                            no_proxy = env.NO_PROXY
-                        }
-                        else if (env.no_proxy) {
-                            no_proxy = env.no_proxy
-                        }
-                        else {
-                            no_proxy = ""
-                        }
-                        if (http_proxy != "") {
-                            echo "Use $http_proxy as proxy"
-                            env.HTTP_PROXY = http_proxy
-                            env.HTTPS_PROXY = http_proxy
-                            env.http_proxy = http_proxy
-                            env.https_proxy = http_proxy
-                            env.CQFD_EXTRA_RUN_ARGS += \
-                                " -e http_proxy=$http_proxy" + \
-                                " -e https_proxy=$http_proxy" + \
-                                " -e HTTPS_PROXY=$http_proxy" + \
-                                " -e HTTP_PROXY=$http_proxy" + \
-                                " -e GIT_PROXY_COMMAND=oe-git-proxy"
-                            env.CQFD_EXTRA_BUILD_ARGS += \
-                                " --build-arg http_proxy=$http_proxy" + \
-                                " --build-arg https_proxy=$http_proxy" + \
-                                " --build-arg HTTPS_PROXY=$http_proxy" + \
-                                " --build-arg HTTP_PROXY=$http_proxy" + \
-                                " --build-arg GIT_PROXY_COMMAND=oe-git-proxy"
-                        }
-                        if (no_proxy != "") {
-                            echo "Exclude $no_proxy from proxy"
-                            env.no_proxy = no_proxy
-                            env.NO_PROXY = no_proxy
-                            env.CQFD_EXTRA_RUN_ARGS += \
-                                " -e no_proxy=$no_proxy" + \
-                                " -e NO_PROXY=$no_proxy"
-                            env.CQFD_EXTRA_BUILD_ARGS += \
-                                " --build-arg no_proxy=$no_proxy" + \
-                                " --build-arg NO_PROXY=$no_proxy"
-                        }
-                    }
-                    if (params.CLEAN_WORKSPACE) {
-                        stage("Fetch Sources") {
-                            sh """
-                                repo init -u "$SEAPATH_URI/repo-manifest.git"
-                                repo sync
-                                cqfd init
-                            """
-                        }
-                    }
-                    stage("Import keys") {
-                        sh """
-                            if [ -e keys ] ; then
-                                rm -rf keys
-                            fi
-                            cp -frv "$params.KEYS_DIR"/ keys
-                        """
-                    }
-                    stage("Create Images Dir") {
-                        sh "mkdir -p -v $params.OUPUT_IMAGES_DIR"
+                    if (!params.IMAGES && !params.CONTAINERS) {
+                        error "Error no images and no containers selected, nothing to do!"
                     }
                 }
             }
         }
 
+        stage("Clean Workspace") {
+            when {
+                expression { params.CLEAN_WORKSPACE }
+            }
+            steps {
+                cleanWs()
+            }
+        }
+        stage("Prepare environnement")
+        {
+            steps {
+                script {
+                    env.CQFD_EXTRA_RUN_ARGS = \
+                        "-v $env.YOCTO_CACHE_DIR/dl:/mnt/dl" + \
+                        " -e DL_DIR=/mnt/dl" + \
+                        " -v $env.YOCTO_CACHE_DIR/sstate:/mnt/sstate" + \
+                        " -e SSTATE_DIR=/mnt/sstate"
+                    env.CQFD_EXTRA_BUILD_ARGS = ""
+                    sh """
+                        mkdir -p "$YOCTO_CACHE_DIR/dl" "$YOCTO_CACHE_DIR/sstate"
+                    """
+                    if (params.HTTP_PROXY) {
+                        http_proxy = params.HTTP_PROXY
+                    }
+                    else if (env.HTTP_PROXY) {
+                        http_proxy = env.HTTP_PROXY
+                    }
+                    else if (env.HTTPS_PROXY) {
+                        http_proxy = env.HTTPS_PROXY
+                    }
+                    else if (env.http_proxy) {
+                        http_proxy = env.http_proxy
+                    }
+                    else if (env.https_proxy) {
+                        http_proxy = env.https_proxy
+                    }
+                    else {
+                        http_proxy = ""
+                    }
+                    if (params.NO_PROXY) {
+                        no_proxy = params.NO_PROXY
+                    }
+                    else if (env.NO_PROXY) {
+                        no_proxy = env.NO_PROXY
+                    }
+                    else if (env.no_proxy) {
+                        no_proxy = env.no_proxy
+                    }
+                    else {
+                        no_proxy = ""
+                    }
+                    if (http_proxy != "") {
+                        echo "Use $http_proxy as proxy"
+                        env.HTTP_PROXY = http_proxy
+                        env.HTTPS_PROXY = http_proxy
+                        env.http_proxy = http_proxy
+                        env.https_proxy = http_proxy
+                        env.CQFD_EXTRA_RUN_ARGS += \
+                            " -e http_proxy=$http_proxy" + \
+                            " -e https_proxy=$http_proxy" + \
+                            " -e HTTPS_PROXY=$http_proxy" + \
+                            " -e HTTP_PROXY=$http_proxy" + \
+                            " -e GIT_PROXY_COMMAND=oe-git-proxy"
+                        env.CQFD_EXTRA_BUILD_ARGS += \
+                            " --build-arg http_proxy=$http_proxy" + \
+                            " --build-arg https_proxy=$http_proxy" + \
+                            " --build-arg HTTPS_PROXY=$http_proxy" + \
+                            " --build-arg HTTP_PROXY=$http_proxy" + \
+                            " --build-arg GIT_PROXY_COMMAND=oe-git-proxy"
+                    }
+                    if (no_proxy != "") {
+                        echo "Exclude $no_proxy from proxy"
+                        env.no_proxy = no_proxy
+                        env.NO_PROXY = no_proxy
+                        env.CQFD_EXTRA_RUN_ARGS += \
+                            " -e no_proxy=$no_proxy" + \
+                            " -e NO_PROXY=$no_proxy"
+                        env.CQFD_EXTRA_BUILD_ARGS += \
+                            " --build-arg no_proxy=$no_proxy" + \
+                            " --build-arg NO_PROXY=$no_proxy"
+                    }
+                    sh "mkdir -p -v $params.OUPUT_IMAGES_DIR"
+                }
+            }
+        }
+        stage("Fetch Sources") {
+            when {
+                expression { params.CLEAN_WORKSPACE && params.IMAGES }
+            }
+            steps {
+                sh """
+                    repo init -u "$SEAPATH_URI/repo-manifest.git"
+                    repo sync
+                    cqfd init
+                """
+            }
+        }
+        stage("Import keys") {
+            when {
+                expression { params.IMAGES }
+            }
+            steps {
+                sh """
+                    if [ -e keys ] ; then
+                        rm -rf keys
+                    fi
+                    cp -frv "$params.PARAMETERS_DIR"/keys keys
+                """
+            }
+        }
+
         stage ("Build Images") {
+            when {
+                expression { params.IMAGES }
+            }
             steps {
                 script {
                     images = params.IMAGES.split(",")
                     for (image in images) {
-                        stage("Build " + image) {
+                        echo("Build " + image)
+                        sh """
+                            cqfd -b $image
+                        """
+                        for (file in build_result_map[image]) {
                             sh """
-                                cqfd -b $image
+                                cp -fv "$BUILD_DIR"/"$file" "$params.OUPUT_IMAGES_DIR"/
                             """
                         }
-                        stage("Save " + image + " result") {
-                            for (file in build_result_map[image]) {
-                                sh """
-                                    cp -fv "$BUILD_DIR"/"$file" "$params.OUPUT_IMAGES_DIR"/
-                                """
-                            }
-                        }
+                    }
+                }
+            }
+        }
+        stage ("Build Containers") {
+            when {
+                expression { params.CONTAINERS }
+            }
+            steps {
+                script {
+                    containers = params.CONTAINERS.split(",")
+                    for (container in containers) {
+                        echo "Generate ${container}"
+                        sh """
+                            docker build $CQFD_EXTRA_BUILD_ARGS $SEAPATH_URI/'containers.git#:'$container --tag seapath-$container
+                            docker save seapath-$container -o "$params.OUPUT_IMAGES_DIR/${container}.tar"
+                        """
                     }
                 }
             }
