@@ -53,4 +53,10 @@ This pipeline provides the following Job parameters:
 |Boolean per images
 |False
 |The images that should be built
+
+|CONTAINERS
+|No
+|Boolean per containers
+|False
+|Check the containers you want to build and export
 |===
