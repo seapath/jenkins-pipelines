@@ -120,6 +120,10 @@ pipeline {
             type: 'PT_CHECKBOX',
             value: 'pxe,',
             visibleItemCount: 100)
+        booleanParam(
+            name: 'EXPORT_SEAPATH_ANSIBLE',
+            defaultValue: false,
+            description: 'Export all SEAPATH Ansible files in an tar.gz archive')
     }
 
     // Prevent concurrent execution of jobs tagged with "seapath-build" category
@@ -145,8 +149,8 @@ pipeline {
         stage("Check parameters")  {
             steps {
                 script {
-                    if (!params.IMAGES && !params.CONTAINERS) {
-                        error "Error no images and no containers selected, nothing to do!"
+                    if (!params.IMAGES && !params.CONTAINERS && !params.EXPORT_SEAPATH_ANSIBLE) {
+                        error "Error nothing was selected, nothing to do!"
                     }
                 }
             }
@@ -298,6 +302,39 @@ pipeline {
                             docker save seapath-$container -o "$params.OUPUT_IMAGES_DIR/${container}.tar"
                         """
                     }
+                }
+            }
+        }
+        stage ("Export SEAPATH Ansible files") {
+            when {
+                expression { params.EXPORT_SEAPATH_ANSIBLE }
+            }
+            steps {
+                sh """
+                    if [ -e ansible ] ; then
+                        rm -rf ansible
+                    fi
+                    mkdir ansible
+                """
+                dir('ansible') {
+                    git changelog: false, poll: false, url: 'https://github.com/seapath/ansible/'
+                    sh """
+                        ./prepare.sh
+                        tar -czf "$OUPUT_IMAGES_DIR/ansible.tar.gz" \
+                            --exclude-vcs \
+                            ansible.cfg \
+                            ceph-ansible/ \
+                            collections/ \
+                            inventories/ \
+                            library/ \
+                            LICENSE \
+                            playbooks/ \
+                            roles/ \
+                            scripts/ \
+                            src/ \
+                            templates/ \
+                            vars/
+                    """
                 }
             }
         }
