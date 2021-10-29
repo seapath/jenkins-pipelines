@@ -5,3 +5,52 @@
 
 This repository contains Jenkinsfiles which define Jenkins pipelines to build,
 configure, test and deploy VMs on SEAPATH machines.
+
+== Jenkinsfile_build
+
+This pipeline can be used to build :
+
+* SEAPATH images, which can later be deployed on SEAPATH machines
+* the Tools container, which can be used by other Jenkins pipelines
+
+This pipeline provides the following Job parameters:
+
+|===
+|Job Parameters |Mandatory |Type |Default |Description
+
+|OUPUT_IMAGES_DIR
+|Yes
+|Directory path (String)
+|/var/jenkins_home/images/
+|Directory where the build artifacts will be stored
+
+|KEYS_DIR
+|Yes
+|Directory path (String)
+|/var/jenkins_home/keys
+|Same directory as the _keys_ directory in yocto-bsp/keys. See https://github.com/seapath/yocto-bsp/tree/master/keys.
+
+|HTTP_PROXY
+|No
+|String
+|
+|Override HTTP proxy configuration
+
+|NO_PROXY
+|No
+|String
+|
+|Override No proxy configration
+
+|CLEAN_WORKSPACE
+|Yes
+|Boolean
+|True
+|Clean the workspace before begin the generation
+
+|IMAGES
+|No
+|Boolean per images
+|False
+|The images that should be built
+|===
