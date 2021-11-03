@@ -60,3 +60,61 @@ This pipeline provides the following Job parameters:
 |False
 |Check the containers you want to build and export
 |===
+
+== Jenkinsfile_image_tester
+
+This pipeline is used to:
+
+* flash SEAPATH images on machines
+* configure SEAPATH machines
+* test SEAPATH machines
+* deploy VMs
+* Test VMs
+
+This pipeline provides the following Job parameters:
+
+|===
+|Job Parameters |Mandatory |Type |Default |Description
+
+|IMAGES_DIR
+|Yes
+|Directory path (String)
+|/var/jenkins_home/images/
+|Directory where the built images and containers are stored
+
+|MAX_LATENCY
+|No
+|Integer
+|200
+|Maximal latency to reach in µs when running RT tests
+
+|TYPE
+|Yes
+|Choice between: ci, ci_rt_test and custom
+|ci
+|Pipleline type to run (See Below).
+
+|NO_IOMMU
+|No
+|Boolean
+|False
+|Use no IOMMU images
+
+|VMs_directory
+|No
+|Directory path (String)
+|
+|Change the directory where the VMs are stored. Work only if TYPE is custom.
+|===
+
+=== Pipeline type
+
+|===
+| Pipeline type | Description
+
+| ci | Pipeline to run continuous integration tests
+
+| ci_rt_test | Pipeline working as the ci pipeline but with real times tests. This pipeline is very long: > 5h
+
+| custom | Generate a custom environment, with custom VMs
+|===
