@@ -262,7 +262,7 @@ pipeline {
                     if [ -e keys ] ; then
                         rm -rf keys
                     fi
-                    cp -frv "$params.PARAMETERS_DIR"/keys keys
+                    cp -frv "$params.KEYS_DIR"/ keys
                 """
             }
         }
