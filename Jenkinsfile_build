@@ -302,7 +302,7 @@ pipeline {
                     for (container in containers) {
                         echo "Generate ${container}"
                         sh """
-                            docker build $CQFD_EXTRA_BUILD_ARGS $SEAPATH_URI/'containers.git#:'$container --tag seapath-$container
+                            docker build $CQFD_EXTRA_BUILD_ARGS $SEAPATH_URI/'containers.git#main:'$container --tag seapath-$container
                             docker save seapath-$container -o "$params.OUPUT_IMAGES_DIR/${container}.tar"
                         """
                     }
@@ -321,7 +321,7 @@ pipeline {
                     mkdir ansible
                 """
                 dir('ansible') {
-                    git changelog: false, poll: false, url: 'https://github.com/seapath/ansible/'
+                    git branch: 'main', changelog: false, poll: false, url: 'https://github.com/seapath/ansible/'
                     sh """
                         ./prepare.sh
                         tar -czf "$OUPUT_IMAGES_DIR/ansible.tar.gz" \
