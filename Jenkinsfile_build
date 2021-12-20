@@ -237,7 +237,6 @@ pipeline {
                             " --build-arg no_proxy=$no_proxy" + \
                             " --build-arg NO_PROXY=$no_proxy"
                     }
-                    sh "mkdir -p -v $params.OUPUT_IMAGES_DIR"
                 }
             }
         }
@@ -267,6 +266,11 @@ pipeline {
             }
         }
 
+        stage("Create Images Dir") {
+            steps {
+                sh "mkdir -p -v $params.OUPUT_IMAGES_DIR"
+            }
+        }
         stage ("Build Images") {
             when {
                 expression { params.IMAGES }
