@@ -12,60 +12,60 @@
 
 build_result_map = [
     flash_bios : [
-        "votp/seapath-flash-bios-votp.wic.gz",
-        "votp/seapath-flash-bios-votp.wic.bmap",
+        "votp-flash/seapath-flash-bios-votp-flash.wic.gz",
+        "votp-flash/seapath-flash-bios-votp-flash.wic.bmap",
     ],
     flash_efi : [
-        "votp/seapath-flash-efi-votp.wic.gz",
-        "votp/seapath-flash-efi-votp.wic.bmap",
+        "votp-flash/seapath-flash-bios-votp-flash.wic.gz",
+        "votp-flash/seapath-flash-bios-votp-flash.wic.bmap",
     ],
     flash_pxe : [
-        "votp/bzImage",
-        "votp/seapath-flash-pxe-votp.cpio.gz"
+        "votp-flash/bzImage",
+        "votp-flash/seapath-flash-pxe-votp-flash.cpio.gz"
     ],
     guest_efi : [
-        "votp-vm/seapath-guest-efi-image-votp-vm.wic.qcow2"
+        "votp-vm/seapath-guest-efi-image-votp-guest.wic.qcow2"
     ],
     guest_efi_test : [
-        "votp-vm/seapath-guest-efi-test-image-votp-vm.wic.qcow2"
+        "votp-vm/seapath-guest-efi-test-image-votp-guest.wic.qcow2"
     ],
     guest_efi_dbg : [
-        "votp-vm/seapath-guest-efi-dbg-image-votp-vm.wic.qcow2"
+        "votp-vm/seapath-guest-efi-dbg-image-votp-guest.wic.qcow2"
     ],
     host_bios : [
-        "votp/seapath-host-bios-image-votp.wic.gz",
-        "votp/seapath-host-bios-image-votp.wic.bmap"
+        "votp-host/seapath-host-bios-image-votp-host.wic.gz",
+        "votp-host/seapath-host-bios-image-votp-host.wic.bmap"
     ],
     host_bios_dbg : [
-        "votp/seapath-host-bios-dbg-image-votp.wic.gz",
-        "votp/seapath-host-bios-dbg-image-votp.wic.bmap"
+        "votp-host/seapath-host-bios-dbg-image-votp-host.wic.gz",
+        "votp-host/seapath-host-bios-dbg-image-votp-host.wic.bmap"
     ],
     host_bios_no_iommu : [
-        "votp-no-iommu/seapath-host-bios-no-iommu-image-votp-no-iommu.wic.bmap",
-        "votp-no-iommu/seapath-host-bios-no-iommu-image-votp-no-iommu.wic.gz"
+        "votp-no-iommu/seapath-host-bios-image-votp-no-iommu.wic.bmap",
+        "votp-no-iommu/seapath-host-bios-image-votp-no-iommu.wic.gz"
     ],
     host_bios_test : [
-        "votp/seapath-host-bios-test-image-votp.wic.gz",
-        "votp/seapath-host-bios-test-image-votp.wic.bmap"
+        "votp-host/seapath-host-bios-test-image-votp-host.wic.gz",
+        "votp-host/seapath-host-bios-test-image-votp-host.wic.bmap"
     ],
     host_bios_test_no_iommu : [
-        "votp-no-iommu/seapath-host-bios-test-no-iommu-image-votp-no-iommu.wic.bmap",
-        "votp-no-iommu/seapath-host-bios-test-no-iommu-image-votp-no-iommu.wic.gz"
+        "votp-no-iommu/seapath-host-bios-test-image-votp-no-iommu.wic.bmap",
+        "votp-no-iommu/seapath-host-bios-test-image-votp-no-iommu.wic.gz"
     ],
     host_efi : [
-        "votp/seapath-host-efi-image-votp.wic.gz",
-        "votp/seapath-host-efi-image-votp.wic.bmap"
+        "votp-host/seapath-host-efi-image-votp-host.wic.gz",
+        "votp-host/seapath-host-efi-image-votp-host.wic.bmap"
     ],
     host_efi_dbg : [
-        "votp/seapath-host-efi-dbg-image-votp.wic.gz",
-        "votp/seapath-host-efi-dbg-image-votp.wic.bmap"
+        "votp-host/seapath-host-efi-dbg-image-votp-host.wic.gz",
+        "votp-host/seapath-host-efi-dbg-image-votp-host.wic.bmap"
     ],
     host_efi_test : [
-        "votp/seapath-host-efi-test-image-votp.wic.gz",
-        "votp/seapath-host-efi-test-image-votp.wic.bmap"
+        "votp-host/seapath-host-efi-test-image-votp-host.wic.gz",
+        "votp-host/seapath-host-efi-test-image-votp-host.wic.bmap"
     ],
     host_efi_swu : [
-        "votp/seapath-host-efi-swu-image-votp.swu"
+        "votp-host/seapath-host-efi-swu-image-votp-host.swu"
     ],
     monitor_bios : [
         "votp-monitor/seapath-monitor-bios-image-votp-monitor.wic.gz",
