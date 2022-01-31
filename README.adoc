@@ -30,6 +30,13 @@ This pipeline provides the following Job parameters:
 |/var/jenkins_home/keys
 |Same directory as the _keys_ directory in yocto-bsp/keys. See https://github.com/seapath/yocto-bsp/tree/master/keys.
 
+|SEAPATH_VARIABLES
+|No
+|String
+|
+|Define SEAPATH custom variable here. Each variable must be coma separated. SEAPATH custom variable are described here:
+https://github.com/seapath/yocto-bsp/blob/main/seapath.conf.sample
+
 |HTTP_PROXY
 |No
 |String

@@ -85,11 +85,14 @@ pipeline {
 
     parameters {
         string(name: 'OUPUT_IMAGES_DIR',
-               defaultValue: '/var/jenkins_home/images/',
+               defaultValue: '/var/jenkins_home/images',
                description: """Directory where the built images will be exported to.""")
         string(name: 'KEYS_DIR',
                defaultValue: '/var/jenkins_home/keys',
                description: """Path to the keys directory.""")
+        string(name: 'SEAPATH_VARIABLES',
+               defaultValue: '',
+               description: """Custom SEAPATH variables, coma separated.""")
         string(name: 'HTTP_PROXY',
                defaultValue: "",
                description: "Overwrite HTTP proxy configuration"
@@ -100,7 +103,7 @@ pipeline {
         )
         booleanParam(
             name: 'CLEAN_WORKSPACE',
-            defaultValue: true,
+            defaultValue: false,
             description: 'Clean the workspace and restart building from strach')
         extendedChoice(
             description: 'Select the images to build',
@@ -141,7 +144,8 @@ pipeline {
     environment {
         YOCTO_CACHE_DIR = "/var/jenkins_home/yocto"
         BUILD_DIR = "build/tmp/deploy/images"
-        SEAPATH_URI = "https://github.com/seapath"
+        GIT_SEAPATH_URI = "https://github.com/seapath"
+        CONFIG_FILE = "/var/jenkins_home/jenkins.properties"
     }
 
     stages {
@@ -237,6 +241,25 @@ pipeline {
                             " --build-arg no_proxy=$no_proxy" + \
                             " --build-arg NO_PROXY=$no_proxy"
                     }
+                    if (fileExists("${CONFIG_FILE}")) {
+
+                        properties = readProperties file: "${CONFIG_FILE}"
+                        for (property in properties)
+                        {
+                            if (property ==~ "^SEAPATH_.*")
+                            {
+                                env.CQFD_EXTRA_RUN_ARGS += " -e $property"
+                            }
+                        }
+                    }
+                    for (seapath_var in params.SEAPATH_VARIABLES.split(","))
+                    {
+                        if (seapath_var ==~ "^SEAPATH_.*")
+                        {
+                            env.CQFD_EXTRA_RUN_ARGS += " -e $seapath_var"
+                        }
+
+                    }
                 }
             }
         }
@@ -246,7 +269,7 @@ pipeline {
             }
             steps {
                 sh """
-                    repo init -u "$SEAPATH_URI/repo-manifest.git"
+                    repo init -u "$GIT_SEAPATH_URI/repo-manifest.git"
                     repo sync
                     cqfd init
                 """
@@ -302,7 +325,7 @@ pipeline {
                     for (container in containers) {
                         echo "Generate ${container}"
                         sh """
-                            docker build $CQFD_EXTRA_BUILD_ARGS $SEAPATH_URI/'containers.git#main:'$container --tag seapath-$container
+                            docker build $CQFD_EXTRA_BUILD_ARGS $GIT_SEAPATH_URI/'containers.git#main:'$container --tag seapath-$container
                             docker save seapath-$container -o "$params.OUPUT_IMAGES_DIR/${container}.tar"
                         """
                     }
