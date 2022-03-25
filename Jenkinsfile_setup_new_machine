@@ -1,0 +1,150 @@
+/************************************************************************************
+ * Jenkins pipeline that flashes, configures, tests and deploys VMs on a SEAPATH machines.
+ ***********************************************************************************/
+
+// Global variable to handle properties
+def p
+
+def imgs_pxe = [
+    "bzImage",
+    "seapath-flash-pxe-votp-flash.cpio.gz"]
+def imgs_seapath = [
+    "seapath-image.wic.bmap",
+    "seapath-image.wic.gz"]
+
+pipeline {
+    agent any
+
+    // Prevent concurrent execution of jobs tagged with "cluster" category
+    options {
+        throttleJobProperty(
+            categories: ['cluster'],
+            throttleEnabled: true,
+            throttleOption: 'category',
+            maxConcurrentPerNode: 1,
+            maxConcurrentTotal: 1)
+        buildDiscarder (
+            logRotator(artifactNumToKeepStr: '20', numToKeepStr: '20'))
+    }
+
+    parameters {
+        string(name: 'IMAGES_DIR',
+               defaultValue: '/var/jenkins_home/images/',
+               description: """Directory where built images are located. \
+Please create and use a subdirectory inside /var/jenkins_home/images with the \
+following files:
+- bzImage
+- seapath-flash-pxe-votp-flash.cpio.gz
+- seapath-image.wic.gz
+- seapath-image.wic.bmap
+- pxe.tar
+- ansible.tar.gz
+
+Note:
+- images need to be built with the 'cluster' ansible SSH public key \
+(https://r1.sfl.team/attachments/3416).
+               """)
+        string (
+            name: 'inventories',
+            description: 'inventories list (comma separated).'
+        )
+    }
+
+    stages {
+
+        stage("Check requirements") {
+            steps {
+                script {
+                    if (!params.inventories) {
+                        error "Error inventories must be set"
+                    }
+                    def imgCheck = true
+                    def imgs = imgs_seapath
+                    imgs += imgs_pxe
+                    imgs += [ "pxe.tar", "ansible.tar.gz" ]
+                    imgs.each { item ->
+                        if (!fileExists("${IMAGES_DIR}/${item}")) {
+                            echo "Could not find ${item}"
+                            imgCheck = false
+                        }
+                    }
+                        if (!imgCheck) {
+                        error "Could not find all required files, please check ${IMAGES_DIR}"
+                    }
+                }
+            }
+        }
+        stage("Prepare Workspace") {
+            steps {
+                cleanWs()
+                script {
+                    echo "copying PXE images to root directory"
+                    sh """
+                        mkdir pxe_images
+                        cp "${IMAGES_DIR}"/${imgs_pxe[0]} pxe_images/
+                        cp "${IMAGES_DIR}"/${imgs_pxe[1]} pxe_images/seapath-flash-pxe-votp.cpio.gz
+                        """
+                    echo "Import SEAPATH ansible files"
+                    sh """
+                        tar xzf "${IMAGES_DIR}/ansible.tar.gz"
+                    """
+                    env.ANSIBLE_INVENTORY = params.inventories
+                    echo "Use Ansible inventory: $ANSIBLE_INVENTORY"
+                }
+            }
+        }
+
+        stage("Prepare Containers") {
+            steps {
+                    echo "Stop containers"
+                    sh """
+                        if docker ps |grep -q seapath_flash_pxe ; then
+                            docker stop seapath_flash_pxe
+                        fi
+                        if docker ps |grep -q seapath_vms_dhcp ; then
+                            docker stop seapath_vms_dhcp
+                        fi
+                    """
+                    echo "Import PXE/DHCP images"
+                    sh """
+                        docker load -i "${IMAGES_DIR}/pxe.tar"
+                    """
+            }
+        }
+
+        stage("Boot from PXE") {
+            steps {
+                script {
+                    sshagent(credentials : ['cluster']) {
+                        sh "ansible-playbook playbooks/ci_boot_machine_from_pxe.yaml -e skip_reboot=on"
+                    }
+                }
+            }
+        }
+
+        stage ("Setup the new machine") {
+            steps {
+                script {
+                    sshagent(credentials : ['cluster']) {
+                            sh """
+                                ansible-playbook \
+                                playbooks/replace_machine_setup_new_machine.yaml\
+                                -e bmap="${IMAGES_DIR}/${imgs_seapath[0]}" \
+                                -e image="${IMAGES_DIR}/${imgs_seapath[1]}"
+                            """
+                    }
+                }
+            }
+        }
+    }
+    post {
+        failure {
+            echo "Force stopping containers"
+            sh """
+                if docker ps |grep -q seapath_flash_pxe ; then
+                    docker stop seapath_flash_pxe
+                fi
+            """
+        }
+    }
+}
