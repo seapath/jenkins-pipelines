@@ -125,3 +125,56 @@ This pipeline provides the following Job parameters:
 
 | custom | Generate a custom environment, with custom VMs
 |===
+
+== Jenkinsfile_remove_machine
+
+This pipeline will remove a machine from a SEAPATH cluster.
+
+This pipeline provides the following Job parameters:
+
+[cols="1,1,2,2,2"]
+|===
+|Job Parameters |Mandatory |Type |Default |Description
+
+|IMAGES_DIR
+|Yes
+|Directory path (String)
+|/var/jenkins_home/images/
+|Directory where the built images and containers are stored
+
+|machine
+|Yes
+|Choice between: hypervisor1, hypervisor1 and observer
+|hypervisor1
+|The machine to be removed
+
+|inventories
+|Yes
+|String
+|
+|inventories path list (comma separated).
+|===
+
+== Jenkinsfile_setup_new_machine
+
+This pipeline will flash, configure and enroll a machine in a SEAPATH cluster.
+The machine has to be halted before running this pipeline.
+
+This pipeline provides the following Job parameters:
+
+[cols="1,1,1,2,3"]
+|===
+|Job Parameters |Mandatory |Type |Default |Description
+
+|IMAGES_DIR
+|Yes
+|Directory path (String)
+|/var/jenkins_home/images/
+|Directory where the built images and containers are stored
+
+|inventories
+|Yes
+|String
+|
+|inventories path list (comma separated).
+|===
