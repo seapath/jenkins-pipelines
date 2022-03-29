@@ -1,0 +1,95 @@
+/************************************************************************************
+ * Jenkins pipeline that removes a machine from a SEAPAH cluster.
+ ***********************************************************************************/
+
+def p // Global variable to handle properties
+
+pipeline {
+    agent any
+
+    // Prevent concurrent execution of jobs tagged with "cluster" category
+    options {
+        throttleJobProperty(
+            categories: ['cluster'],
+            throttleEnabled: true,
+            throttleOption: 'category',
+            maxConcurrentPerNode: 1,
+            maxConcurrentTotal: 1)
+        buildDiscarder (
+            logRotator(artifactNumToKeepStr: '20', numToKeepStr: '20'))
+    }
+
+    parameters {
+        string(name: 'IMAGES_DIR',
+               defaultValue: '/var/jenkins_home/images/',
+               description: """Directory where ansible archive image is. \
+Please create and use a subdirectory inside /var/jenkins_home/images with the \
+following file:
+- ansible.tar.gz """)
+
+        choice(
+            name: 'machine',
+            choices: ['hypervisor1', 'hypervisor2', 'observer'],
+            description: '''Select the machine to remove'''
+        )
+        string (
+            name: 'inventories',
+            description: 'inventories list (comma separated).'
+        )
+    }
+
+    stages {
+
+        stage("Check requirements") {
+            steps {
+                script {
+                    if (!params.inventories) {
+                        error "Error inventories must be set"
+                    }
+                    if (!fileExists(params.IMAGES_DIR + "/ansible.tar.gz")) {
+                            error "Could not find ansible.tar.gz"
+                     }
+                }
+            }
+        }
+        stage("Prepare Workspace") {
+            steps {
+                cleanWs()
+                script {
+                    echo "Import SEAPATH ansible files"
+                    sh """
+                        tar xzf "${IMAGES_DIR}/ansible.tar.gz"
+                    """
+                    env.ANSIBLE_INVENTORY = params.inventories
+                    echo "Use Ansible inventory: $ANSIBLE_INVENTORY"
+                }
+            }
+        }
+        stage("Shutdown the machine") {
+            steps {
+                script {
+                    sh """
+                        ansible-playbook -e machine_to_stop="${machine}" playbooks/ci_stop_machine.yaml
+                    """
+                }
+            }
+        }
+        stage("Remove the machine in the cluster") {
+            steps {
+                script {
+                    machines = ["hypervisor1", "hypervisor2", "observer"]
+                    machines.remove(params.machine)
+                    ansible_host = machines.join(",")
+                    sshagent(credentials : ['cluster']) {
+                        sh """
+                        ansible-playbook \
+                            --limit="${ansible_host}" \
+                            -e machine_to_remove="${machine}" \
+                            playbooks/replace_machine_remove_machine_from_cluster.yaml
+                    """
+                    }
+                }
+            }
+        }
+    }
+}

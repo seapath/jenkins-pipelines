@@ -6,29 +6,29 @@ def p // Global variable to handle properties
 
 def imgs_pxe = [
     "bzImage",
-    "seapath-flash-pxe-votp.cpio.gz"]
+    "seapath-flash-pxe-votp-flash.cpio.gz"]
 def imgs_monitor = [
     "seapath-monitor-bios-image-votp-monitor.wic.bmap",
     "seapath-monitor-bios-image-votp-monitor.wic.gz"]
 
 def imgs_regular = [
-    "seapath-host-bios-image-votp.wic.bmap",
-    "seapath-host-bios-image-votp.wic.gz"]
+    "seapath-host-bios-image-votp-host.wic.bmap",
+    "seapath-host-bios-image-votp-host.wic.gz"]
 
 def imgs_tests = [
-    "seapath-host-bios-test-image-votp.wic.bmap",
-    "seapath-host-bios-test-image-votp.wic.gz"]
+    "seapath-host-bios-test-image-votp-host.wic.bmap",
+    "seapath-host-bios-test-image-votp-host.wic.gz"]
 
 def imgs_noiommu = [
-    "seapath-host-bios-no-iommu-image-votp-no-iommu.wic.bmap",
-    "seapath-host-bios-no-iommu-image-votp-no-iommu.wic.gz"]
+    "seapath-host-bios-image-votp-no-iommu.wic.bmap",
+    "seapath-host-bios-image-votp-no-iommu.wic.gz"]
 
 def imgs_tests_noiommu = [
-    "seapath-host-bios-test-no-iommu-image-votp-no-iommu.wic.bmap",
-    "seapath-host-bios-test-no-iommu-image-votp-no-iommu.wic.gz"]
+    "seapath-host-bios-test-image-votp-no-iommu.wic.bmap",
+    "seapath-host-bios-test-image-votp-no-iommu.wic.gz"]
 
-def img_guest = ["seapath-guest-efi-image-votp-vm.wic.qcow2"]
-def img_guest_test = ["seapath-guest-efi-test-image-votp-vm.wic.qcow2"]
+def img_guest = ["seapath-guest-efi-image-votp-guest.wic.qcow2"]
+def img_guest_test = ["seapath-guest-efi-test-image-votp-guest.wic.qcow2"]
 
 pipeline {
     agent any
@@ -57,15 +57,15 @@ pipeline {
 Please create and use a subdirectory inside /var/jenkins_home/images with the \
 following files:
 - bzImage
-- seapath-flash-pxe-votp.cpio.gz
-- seapath-host-bios-image-votp.wic.bmap
-- seapath-host-bios-image-votp.wic.gz
-- seapath-host-bios-test-image-votp.wic.bmap
-- seapath-host-bios-test-image-votp.wic.gz
+- seapath-flash-pxe-votp-flash.cpio.gz
+- seapath-host-bios-image-votp-host.wic.bmap
+- seapath-host-bios-image-votp-host.wic.gz
+- seapath-host-bios-test-image-votp-host.wic.bmap
+- seapath-host-bios-test-image-votp-host.wic.gz
 - seapath-monitor-bios-image-votp-monitor.wic.bmap
 - seapath-monitor-bios-image-votp-monitor.wic.gz
-- seapath-guest-efi-image-votp-vm.wic.qcow2
-- seapath-guest-efi-test-image-votp-vm.wic.qcow2
+- seapath-guest-efi-image-votp-guest.wic.qcow2
+- seapath-guest-efi-test-image-votp-guest.wic.qcow2
 - seapath-host-bios-no-iommu-image-votp-no-iommu.wic.bmap
 - seapath-host-bios-no-iommu-image-votp-no-iommu.wic.gz
 - pxe.tar
@@ -150,8 +150,8 @@ Note:
                     echo "copying PXE images to root directory"
                     sh """
                         mkdir pxe_images
-                        cp "${IMAGES_DIR}"/bzImage pxe_images/
-                        cp "${IMAGES_DIR}"/seapath-flash-pxe-votp.cpio.gz pxe_images/
+                        cp "${IMAGES_DIR}"/${imgs_pxe[0]} pxe_images/
+                        cp "${IMAGES_DIR}"/${imgs_pxe[1]} pxe_images/seapath-flash-pxe-votp.cpio.gz
                         """
                     echo "Import SEAPATH ansible files"
                     sh """
@@ -199,47 +199,44 @@ Note:
                             if (params.NO_IOMMU) {
                                 sh """
                                     ansible-playbook \
-                                    --extra-vars image_path="${IMAGES_DIR}/seapath-host-bios-test-no-iommu-image-votp-no-iommu.wic.gz" \
+                                    --extra-vars image_path="${IMAGES_DIR}/${imgs_tests_noiommu[1]}" \
                                     --limit "pxe_hypervisor*" \
                                     playbooks/ci_flash_disk.yaml
                                 """
                             } else {
                                 sh """
                                     ansible-playbook \
-                                    --extra-vars image_path="${IMAGES_DIR}/seapath-host-bios-test-image-votp.wic.gz" \
+                                    --extra-vars image_path="${IMAGES_DIR}/${imgs_tests[1]}" \
                                     --limit "pxe_hypervisor*" \
                                     playbooks/ci_flash_disk.yaml
                                 """
                             }
-                            sh """
-                                ansible-playbook \
-                                --extra-vars image_path="${IMAGES_DIR}/seapath-monitor-bios-image-votp-monitor.wic.gz" \
-                                --limit "pxe_observer" \
-                                playbooks/ci_flash_disk.yaml
-                            """
                         }
                     }else{
                         sshagent(credentials : ['cluster']) {
                             if (params.NO_IOMMU) {
                                 sh """
                                     ansible-playbook \
-                                    --extra-vars image_path="${IMAGES_DIR}/seapath-host-bios-no-iommu-image-votp-no-iommu.wic.gz" \
+                                    --extra-vars image_path="${IMAGES_DIR}/${imgs_noiommu[1]}" \
                                     --limit "pxe_hypervisor*" \
-                                    playbooks/ci_flash_disk.yaml
-                                    ansible-playbook \
-                                    --extra-vars image_path="${IMAGES_DIR}/seapath-monitor-bios-image-votp-monitor.wic.gz" \
-                                    --limit "pxe_observer" \
                                     playbooks/ci_flash_disk.yaml
                                 """
                             } else {
                                 sh """
                                     ansible-playbook \
-                                    --extra-vars image_directory="${IMAGES_DIR}" \
+                                    --extra-vars image_path="${IMAGES_DIR}/${imgs_regular[1]}" \
+                                    --limit "pxe_hypervisor*" \
                                     playbooks/ci_flash_disk.yaml
                                 """
                             }
                         }
                     }
+                    sh """
+                        ansible-playbook \
+                        --extra-vars image_path="${IMAGES_DIR}/${imgs_monitor[1]}" \
+                        --limit "pxe_observer" \
+                        playbooks/ci_flash_disk.yaml
+                    """
                 }
             }
         }
@@ -322,7 +319,7 @@ Note:
                             sh """
                                 ansible-playbook \
                                 --extra-vars image_directory="${IMAGES_DIR}" \
-                                --extra-vars guest_image=seapath-guest-efi-test-image-votp-vm.wic.qcow2 \
+                                --extra-vars guest_image="${img_guest_test[0]}" \
                                 --extra-vars vm_config="${guest_template}" \
                                 playbooks/ci_deploy_vms.yaml
 
@@ -354,6 +351,7 @@ Note:
                             sh """
                                 ansible-playbook \
                                 --extra-vars image_directory="${IMAGES_DIR}" \
+                                --extra-vars guest_image="${img_guest[0]}" \
                                 --extra-vars vm_config="${guest_template}" \
                                 playbooks/ci_deploy_vms.yaml
 

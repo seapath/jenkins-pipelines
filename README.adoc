@@ -30,6 +30,13 @@ This pipeline provides the following Job parameters:
 |/var/jenkins_home/keys
 |Same directory as the _keys_ directory in yocto-bsp/keys. See https://github.com/seapath/yocto-bsp/tree/master/keys.
 
+|SEAPATH_VARIABLES
+|No
+|String
+|
+|Define SEAPATH custom variable here. Each variable must be coma separated. SEAPATH custom variable are described here:
+https://github.com/seapath/yocto-bsp/blob/main/seapath.conf.sample
+
 |HTTP_PROXY
 |No
 |String
@@ -117,4 +124,57 @@ This pipeline provides the following Job parameters:
 | ci_rt_test | Pipeline working as the ci pipeline but with real times tests. This pipeline is very long: > 5h
 
 | custom | Generate a custom environment, with custom VMs
+|===
+
+== Jenkinsfile_remove_machine
+
+This pipeline will remove a machine from a SEAPATH cluster.
+
+This pipeline provides the following Job parameters:
+
+[cols="1,1,2,2,2"]
+|===
+|Job Parameters |Mandatory |Type |Default |Description
+
+|IMAGES_DIR
+|Yes
+|Directory path (String)
+|/var/jenkins_home/images/
+|Directory where the built images and containers are stored
+
+|machine
+|Yes
+|Choice between: hypervisor1, hypervisor1 and observer
+|hypervisor1
+|The machine to be removed
+
+|inventories
+|Yes
+|String
+|
+|inventories path list (comma separated).
+|===
+
+== Jenkinsfile_setup_new_machine
+
+This pipeline will flash, configure and enroll a machine in a SEAPATH cluster.
+The machine has to be halted before running this pipeline.
+
+This pipeline provides the following Job parameters:
+
+[cols="1,1,1,2,3"]
+|===
+|Job Parameters |Mandatory |Type |Default |Description
+
+|IMAGES_DIR
+|Yes
+|Directory path (String)
+|/var/jenkins_home/images/
+|Directory where the built images and containers are stored
+
+|inventories
+|Yes
+|String
+|
+|inventories path list (comma separated).
 |===
