@@ -83,7 +83,6 @@ following file:
                     sshagent(credentials : ['cluster']) {
                         sh """
                         ansible-playbook \
-                            --limit="${ansible_host}" \
                             -e machine_to_remove="${machine}" \
                             playbooks/replace_machine_remove_machine_from_cluster.yaml
                     """
