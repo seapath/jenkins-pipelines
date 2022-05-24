@@ -82,7 +82,7 @@ Note:
                     sh """
                         mkdir pxe_images
                         cp "${IMAGES_DIR}"/${imgs_pxe[0]} pxe_images/
-                        cp "${IMAGES_DIR}"/${imgs_pxe[1]} pxe_images/seapath-flash-pxe-votp.cpio.gz
+                        cp "${IMAGES_DIR}"/${imgs_pxe[1]} pxe_images/seapath-flash-pxe-votp-flash.cpio.gz
                         """
                     echo "Import SEAPATH ansible files"
                     sh """
