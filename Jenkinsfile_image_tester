@@ -6,26 +6,24 @@ def p // Global variable to handle properties
 
 def imgs_pxe = [
     "bzImage",
-    "seapath-flash-pxe-votp-flash.cpio.gz"]
+    "seapath-flash.cpio.gz"]
 def imgs_monitor = [
-    "seapath-monitor-bios-image-votp-monitor.wic.bmap",
-    "seapath-monitor-bios-image-votp-monitor.wic.gz"]
+    "seapath-monitor-image.wic.bmap",
+    "seapath-monitor-image.wic.gz"]
 
 def imgs_regular = [
-    "seapath-host-bios-image-votp-host.wic.bmap",
-    "seapath-host-bios-image-votp-host.wic.gz"]
+    "seapath-host1-image.wic.bmap",
+    "seapath-host1-image.wic.gz",
+    "seapath-host2-image.wic.bmap",
+    "seapath-host2-image.wic.gz",
+    ]
 
 def imgs_tests = [
-    "seapath-host-bios-test-image-votp-host.wic.bmap",
-    "seapath-host-bios-test-image-votp-host.wic.gz"]
-
-def imgs_noiommu = [
-    "seapath-host-bios-image-votp-no-iommu.wic.bmap",
-    "seapath-host-bios-image-votp-no-iommu.wic.gz"]
-
-def imgs_tests_noiommu = [
-    "seapath-host-bios-test-image-votp-no-iommu.wic.bmap",
-    "seapath-host-bios-test-image-votp-no-iommu.wic.gz"]
+    "seapath-host1-test-image.wic.bmap",
+    "seapath-host1-test-image.wic.gz",
+    "seapath-host2-test-image.wic.bmap",
+    "seapath-host2-test-image.wic.gz",
+    ]
 
 def img_guest = ["seapath-guest-efi-image-votp-guest.wic.qcow2"]
 def img_guest_test = ["seapath-guest-efi-test-image-votp-guest.wic.qcow2"]
@@ -57,18 +55,20 @@ pipeline {
 Please create and use a subdirectory inside /var/jenkins_home/images with the \
 following files:
 - bzImage
-- seapath-flash-pxe-votp-flash.cpio.gz
-- seapath-host-bios-image-votp-host.wic.bmap
-- seapath-host-bios-image-votp-host.wic.gz
-- seapath-host-bios-test-image-votp-host.wic.bmap
-- seapath-host-bios-test-image-votp-host.wic.gz
-- seapath-monitor-bios-image-votp-monitor.wic.bmap
-- seapath-monitor-bios-image-votp-monitor.wic.gz
-- seapath-guest-efi-image-votp-guest.wic.qcow2
-- seapath-guest-efi-test-image-votp-guest.wic.qcow2
-- seapath-host-bios-no-iommu-image-votp-no-iommu.wic.bmap
-- seapath-host-bios-no-iommu-image-votp-no-iommu.wic.gz
-- pxe.tar
+- seapath-flash.cpio.gz
+- seapath-host1-image.wic.bmap
+- seapath-host1-image.wic.gz
+- seapath-host2-image.wic.bmap
+- seapath-host2-image.wic.gz
+- seapath-host1-test-image.wic.bmap
+- seapath-host1-test-image.wic.gz
+- seapath-host2-test-image.wic.bmap
+- seapath-host2-test-image.wic.gz
+- seapath-monitor-image.wic.bmap
+- seapath-monitor-image.wic.gz
+- seapath-guest-efi-image.wic.qcow2
+- seapath-guest-efi-test-image.wic.qcow2
+- seapath-pxe.tar
 - ansible.tar.gz
 
 Note:
@@ -99,10 +99,11 @@ Note:
             description: 'Change the directory where the VMs are stored. Work only if TYPE is custom.'
         )
         booleanParam(
-            name: 'NO_IOMMU',
+            name: 'NO_DPDK',
             defaultValue: false,
-            description: 'If custom is set, use no IOMMU images'
+            description: 'Use OVS without DPDK'
             )
+
     }
 
     stages {
@@ -116,21 +117,13 @@ Note:
                     def imgCheck = true
                     def imgs = imgs_monitor
                     if (params.TYPE == "ci_rt_test") {
-                        if (params.NO_IOMMU) {
-                            imgs += imgs_tests_noiommu
-                        } else {
-                            imgs += imgs_tests
-                        }
+                        imgs += imgs_tests
                         imgs += img_guest_test
                     } else {
-                            if (params.NO_IOMMU) {
-                            imgs += imgs_noiommu
-                            } else {
-                            imgs += imgs_regular
-                            }
-                            imgs += img_guest
+                        imgs += imgs_regular
+                        imgs += img_guest
                     }
-                    imgs += [ "pxe.tar", "ansible.tar.gz" ]
+                    imgs += [ "seapath-pxe.tar", "ansible.tar.gz" ]
                     imgs.each { item ->
                         if (!fileExists("${IMAGES_DIR}/${item}")) {
                             echo "Could not find ${item}"
@@ -176,7 +169,7 @@ Note:
                     """
                     echo "Import PXE/DHCP images"
                     sh """
-                        docker load -i "${IMAGES_DIR}/pxe.tar"
+                        docker load -i "${IMAGES_DIR}/seapath-pxe.tar"
                     """
             }
         }
@@ -196,39 +189,33 @@ Note:
                 script {
                     if (params.TYPE == "ci_rt_test") {
                         sshagent(credentials : ['cluster']) {
-                            if (params.NO_IOMMU) {
-                                sh """
-                                    ansible-playbook \
-                                    --extra-vars image_path="${IMAGES_DIR}/${imgs_tests_noiommu[1]}" \
-                                    --limit "pxe_hypervisor*" \
-                                    playbooks/ci_flash_disk.yaml
-                                """
-                            } else {
-                                sh """
-                                    ansible-playbook \
-                                    --extra-vars image_path="${IMAGES_DIR}/${imgs_tests[1]}" \
-                                    --limit "pxe_hypervisor*" \
-                                    playbooks/ci_flash_disk.yaml
-                                """
-                            }
+                            sh """
+                                ansible-playbook \
+                                --extra-vars image_path="${IMAGES_DIR}/${imgs_tests[1]}" \
+                                --limit "pxe_hypervisor1" \
+                                playbooks/ci_flash_disk.yaml
+                            """
+                            sh """
+                                ansible-playbook \
+                                --extra-vars image_path="${IMAGES_DIR}/${imgs_tests[3]}" \
+                                --limit "pxe_hypervisor2" \
+                                playbooks/ci_flash_disk.yaml
+                            """
                         }
                     }else{
                         sshagent(credentials : ['cluster']) {
-                            if (params.NO_IOMMU) {
-                                sh """
-                                    ansible-playbook \
-                                    --extra-vars image_path="${IMAGES_DIR}/${imgs_noiommu[1]}" \
-                                    --limit "pxe_hypervisor*" \
-                                    playbooks/ci_flash_disk.yaml
-                                """
-                            } else {
-                                sh """
-                                    ansible-playbook \
-                                    --extra-vars image_path="${IMAGES_DIR}/${imgs_regular[1]}" \
-                                    --limit "pxe_hypervisor*" \
-                                    playbooks/ci_flash_disk.yaml
-                                """
-                            }
+                            sh """
+                                ansible-playbook \
+                                --extra-vars image_path="${IMAGES_DIR}/${imgs_regular[1]}" \
+                                --limit "pxe_hypervisor1" \
+                                playbooks/ci_flash_disk.yaml
+                            """
+                            sh """
+                                ansible-playbook \
+                                --extra-vars image_path="${IMAGES_DIR}/${imgs_regular[3]}" \
+                                --limit "pxe_hypervisor2" \
+                                playbooks/ci_flash_disk.yaml
+                            """
                         }
                     }
                     sh """
@@ -307,7 +294,7 @@ Note:
         stage("Deploy VM") {
             steps {
                 script {
-                    if (params.NO_IOMMU) {
+                    if (params.NO_DPDK) {
                         env.guest_template = env.WORKSPACE + \
                             "/templates/vm/votp_vm_rt_isolated.xml.j2"
                     } else {
